@@ -1,0 +1,19 @@
+[target_1]
+url = http://www.example.com
+username = john_doe
+pwd = secret_pwd
+
+[target_2]
+url = http://www.example.com
+username = john_doe
+pwd = secret_pwd
+
+[target_3]
+url = http://www.example.com
+username = john_doe
+pwd = secret_pwd
+
+[target_4]
+url = http://www.example.com
+username = john_doe
+pwd = secret_pwd
