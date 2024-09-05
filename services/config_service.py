@@ -1,14 +1,16 @@
 import configparser
+
+
 class ConfigService:
-    def __init__(self, configFile):
-        self.configFile = configFile
+    def __init__(self, config_file):
+        self.config_file = config_file
         self.config = configparser.ConfigParser()
 
-    def readConfig(self):
-        self.config.read(self.configFile)
+    def read_config(self):
+        self.config.read(self.config_file)
 
-    def getTargets(self):
+    def get_targets(self):
         return self.config.sections()
 
-    def getData(self, target, key):
+    def get_data(self, target, key):
         return self.config[target][key]
