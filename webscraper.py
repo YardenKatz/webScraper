@@ -1,17 +1,20 @@
 # import math
 
 # from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
+
+# from selenium.webdriver.common.keys import Keys
 # from selenium.webdriver.chrome.service import Service
 # from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as ec
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
 # import undetected_chromedriver as UC
-import time
-from seleniumbase import Driver as SBDriver
+# import time
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import InvalidElementStateException, NoSuchElementException, TimeoutException
+from seleniumbase import Driver, BaseCase
 from services.config_service import ConfigService
+from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
 
 
 class WebScraperException(Exception):
@@ -22,13 +25,17 @@ class WebScraperException(Exception):
         return self.msg
 
 
-class WebScraper:
+class WebScraper(BaseCase):
     """
        Scrapes Websites.
 
        :param int target_index: refers to index of target in config.ini. Update config.ini with target data
+       [string] items: list of item codes to search
     """
-    def __init__(self, target_index, headless_mode=True):
+
+    def __init__(self, target_index, items, headless_mode=True, is_test_env=False):
+        super().__init__()  # Call SeleniumBase init for tests
+
         self.config_service = ConfigService('config.ini')
         self.config_service.read_config()
         targets = self.config_service.get_targets()
@@ -37,21 +44,95 @@ class WebScraper:
         self.username = self.config_service.get_data(targets[target_index], 'username')
         self.pwd = self.config_service.get_data(targets[target_index], 'pwd')
 
+        self.items = items
         self.headless_mode = headless_mode
+        self.is_test_env = is_test_env
+        if not self.is_test_env:
+            # Initialize ChromeDriver with WebDriverManager
+            options = webdriver.ChromeOptions()
+            if headless_mode:
+                options.add_argument("--headless")
+            self.driver = webdriver.Chrome(service=webdriver.chrome.service.Service(ChromeDriverManager().install()),
+                                           options=options)
+        else:
+            self.driver = None  # Handled by SeleniumBase in test mode
+
         # self.profile_path = "/chrome_profile"
         # self.profile_directory = "Profile 1"
-        self.driver = self.init_driver()
+        # self.driver = self.init_driver()
         # self.session = requests.session()
 
-    def init_driver(self):
-        # service = Service('C:/Apps/chromedriver-win64/chromedriver.exe')
-        # options = Options()
-        # options.add_argument(f"--user-data-dir={self.profile_path}")
-        # options.add_argument(f'--profile-directory={self.profile_directory}')
-        # if self.headless_mode:
-        #     options.add_argument("--headless=new")
-        # return webdriver.Chrome(service=service, options=options)
-        return SBDriver(uc=True, headless=self.headless_mode)
+    # def init_driver(self):
+    # service = Service('C:/Apps/chromedriver-win64/chromedriver.exe')
+    # options = Options()
+    # options.add_argument(f"--user-data-dir={self.profile_path}")
+    # options.add_argument(f'--profile-directory={self.profile_directory}')
+    # if self.headless_mode:
+    #     options.add_argument("--headless=new")
+    # return webdriver.Chrome(service=service, options=options)
+    # return SBDriver(uc=True, headless=self.headless_mode)
+
+    def setUp(self):
+        """Initialize SeleniumBase's driver."""
+        if self.is_test_env:
+            super().setUp()  # Let pytest handle initialization in test mode
+
+    def tearDown(self):
+        """Clean up the driver."""
+        if self.is_test_env:
+            super().tearDown()  # Let pytest handle teardown in test mode
+        else:
+            self.driver.quit()  # Manually quit in standalone mode
+
+    # Helper methods to use SeleniumBase methods in standalone mode
+    def open(self, url):
+        if self.is_test_env:
+            super().open(url)
+        else:
+            self.driver.get(url)
+
+    def type(self, selector, text, clear_before=True, wait_time=60):
+        """
+        Types text into an input field.
+
+        Args:
+            selector (str): The CSS selector of the input field.
+            text (str): The text to type into the field.
+            clear_before (bool): Whether to clear the field before typing. Default is True.
+            wait_time (int): How long to wait for the element to become interactable. Default is 10 seconds.
+        """
+        if self.is_test_env:
+            super().type(selector, text)
+        else:
+            try:
+                # Wait for the element to be visible and enabled
+                element = WebDriverWait(self.driver, wait_time).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                )
+                # Clear the field if required
+                if clear_before:
+                    try:
+                        element.clear()
+                    except InvalidElementStateException:
+                        print(f"Cannot clear element {selector}. Proceeding to type.")
+                element.send_keys(text)
+            except (TimeoutException, NoSuchElementException):
+                print(f"Element not found or not interactable: {selector}")
+                raise WebScraperException(f"Element not found or not interactable: {selector}")
+
+    def click(self, selector):
+        if self.is_test_env:
+            super().click(selector)
+        else:
+            element = self.driver.find_element(By.CSS_SELECTOR, selector)
+            element.click()
+
+    def get_text(self, selector):
+        if self.is_test_env:
+            return super().get_text(selector)
+        else:
+            element = self.driver.find_element(By.CSS_SELECTOR, selector)
+            return element.text
 
     def login(self):
         raise NotImplementedError("Subclasses should implement this method")
@@ -62,52 +143,75 @@ class WebScraper:
     def scrape_results(self) -> (str, str, str):
         raise NotImplementedError("Subclasses should implement this method")
 
-    def close(self):
-        self.driver.quit()
+    # def close(self):
+    #     self.driver.quit()
+
+    def handle_results(self, results):
+        pass  # to be implemented
+
+    def start(self):
+        self.setUp()
+        try:
+            self.login()
+            for item in self.items:
+                self.search_item(item)
+                results = self.scrape_results(item)
+                # self.handle_results(results)
+        finally:
+            self.tearDown()
 
 
 class MusicCenterScraper(WebScraper):
 
-    def __init__(self, headless_mode=True):
-        super().__init__(0, headless_mode)
+    def __init__(self, items, headless_mode=True, is_test_env=False):
+        super().__init__(0, items, headless_mode, is_test_env)
         self.is_first_search = True
 
     def login(self):
         try:
             login_endpoint = '/system/login'
-            self.driver.get(self.base_url + login_endpoint)
-            self.driver.implicitly_wait(2)
+            # self.driver.get(self.base_url + login_endpoint)
+            # self.driver.implicitly_wait(2)
+            self.open(self.base_url + login_endpoint)
 
-            username_field, pwd_field = self.driver.find_elements(By.CSS_SELECTOR, "input[role='textbox']")
-            submit_btn = self.driver.find_element(By.CSS_SELECTOR, "dx-button[aria-label='כניסה למערכת']")
+            # username_field, pwd_field = self.driver.find_elements(By.CSS_SELECTOR, "input[role='textbox']")
+            # submit_btn = self.driver.find_element(By.CSS_SELECTOR, "dx-button[aria-label='כניסה למערכת']")
 
             print("Entering login credentials")
-            username_field.send_keys(self.username)
-            pwd_field.send_keys(self.pwd)
-            submit_btn.send_keys(Keys.RETURN)
 
-            self.driver.implicitly_wait(2)
+            # username_field.send_keys(self.username)
+            # pwd_field.send_keys(self.pwd)
+            # submit_btn.send_keys(Keys.RETURN)
 
+            # self.driver.implicitly_wait(2)
+
+            self.type("input[type='text'][role='textbox']", self.username)
+            self.type("input[type='password']", self.pwd)
+            self.click("dx-button[aria-label='כניסה למערכת']")
             # Check if login was successful by looking for a known element on the home page
-            WebDriverWait(self.driver, 4).until(
-                ec.presence_of_element_located((By.CSS_SELECTOR, "dx-button[aria-label='התחל הזמנה']"))
-            )
+            # WebDriverWait(self.driver, 4).until(
+            #     ec.presence_of_element_located((By.CSS_SELECTOR, "dx-button[aria-label='התחל הזמנה']"))
+            # )
+            # self.assert_element_present("dx-button[aria-label='התחל הזמנה']")
             print("Login successful")
         except (NoSuchElementException, TimeoutException):
-            self.close()
+            # self.close()
             raise WebScraperException("Login failed: Incorrect credentials or element not found\n")
 
     def search_item(self, item_code):
         try:
             if self.is_first_search:
-                self.driver.find_element(By.CSS_SELECTOR, "dx-button[aria-label='התחל הזמנה']").send_keys(Keys.RETURN)
+                # self.driver.find_element(By.CSS_SELECTOR, "dx-button[aria-label='התחל הזמנה']").send_keys(Keys.RETURN)
+                self.click("dx-button[aria-label='התחל הזמנה']")
                 self.is_first_search = False
-            search_field = self.driver.find_element(By.CSS_SELECTOR, "input.dx-texteditor-input")
-            search_field.clear()
-            search_field.send_keys(item_code)
-            search_field.send_keys(Keys.RETURN)
+            # search_field = self.driver.find_element(By.CSS_SELECTOR, "input.dx-texteditor-input")
+            # search_field.clear()
+            # search_field.send_keys(item_code)
+            # search_field.send_keys(Keys.RETURN)
+
+            self.type("input.dx-texteditor-input", item_code)
             # print("Search initiated for item:", item_code)
-            time.sleep(5)  # Adjust the sleep time as needed
+            # time.sleep(5)  # Adjust the sleep time as needed
         except NoSuchElementException:
             # self.close()
             raise WebScraperException("Search failed. Search field not found")
@@ -117,12 +221,17 @@ class MusicCenterScraper(WebScraper):
             # WebDriverWait(self.driver, 4).until(
             #     EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='stock-custom-text']"))
             # )
-            self.driver.implicitly_wait(4)
-            stock_status = self.driver.find_element(By.CSS_SELECTOR, "div[class*='stock-custom-text']").text
-            trader_price = self.driver.find_element(By.CLASS_NAME, "price").text
-            price_switch = self.driver.find_element(By.CLASS_NAME, "alternative-price")
-            price_switch.click()
-            consumer_price = self.driver.find_element(By.CLASS_NAME, "price").text
+            # self.driver.implicitly_wait(4)
+            # stock_status = self.driver.find_element(By.CSS_SELECTOR, "div[class*='stock-custom-text']").text
+            # trader_price = self.driver.find_element(By.CLASS_NAME, "price").text
+            # price_switch = self.driver.find_element(By.CLASS_NAME, "alternative-price")
+            # price_switch.click()
+            # consumer_price = self.driver.find_element(By.CLASS_NAME, "price").text
+
+            stock_status = self.get_text("div[class*='stock-custom-text']")
+            trader_price = self.get_text(".price")
+            self.click(".alternative-price")
+            consumer_price = self.get_text(".price")
 
             return stock_status, trader_price, consumer_price
         except NoSuchElementException:
@@ -133,13 +242,15 @@ class ArtStudioScraper(WebScraper):
     def __init__(self, headless_mode=True):
         super().__init__(1, headless_mode)
 
-    def init_driver(self):
-        return SBDriver(uc=True, headless=self.headless_mode)
+    # def init_driver(self):
+    #     return SBDriver(uc=True, headless=self.headless_mode)
 
     def login(self):
         try:
-            self.driver.get(self.base_url + '?route=account/login')
+            # self.driver.get(self.base_url + '?route=account/login')
             # self.driver.implicitly_wait(5)
+
+            self.open(self.base_url + '?route=account/login')
 
             # login_field = self.driver.find_element(By.CSS_SELECTOR, "#input-email") pwd_field =
             # self.driver.find_element(By.CSS_SELECTOR, '#input-pwd') submit_btn = self.driver.find_element(
@@ -149,16 +260,21 @@ class ArtStudioScraper(WebScraper):
             # pwd_field.send_keys(self.pwd)
             # submit_btn.send_keys(Keys.RETURN)
 
-            self.driver.type("#input-email", self.username)
-            self.driver.type("#input-password", self.pwd)
-            self.driver.click('#content > div > div:nth-child(2) > div > form > div.buttons > div > button')
+            # self.driver.type("#input-email", self.username)
+            # self.driver.type("#input-password", self.pwd)
+            # self.driver.click('#content > div > div:nth-child(2) > div > form > div.buttons > div > button')
+            self.type("#input-email", self.username)
+            self.type("#input-password", self.pwd)
+            self.click('#content > div > div:nth-child(2) > div > form > div.buttons > div > button')
 
             # Check if login was successful by looking for a known element on the home page
             # WebDriverWait(self.driver, 4).until(
             #     EC.presence_of_element_located((By.XPATH, "//span[@class='links-text' and text()='החשבון שלי']"))
             # )
             # self.driver.assert_element("//span[@class='links-text' and text()='החשבון שלי']")
-            self.driver.assert_text("החשבון שלי")
+            # self.driver.assert_text("החשבון שלי")
+            self.assert_text("החשבון שלי")
+
             print("Login successful")
 
 
@@ -166,29 +282,40 @@ class ArtStudioScraper(WebScraper):
             raise
 
     def search_item(self, item_code):
-        search_field = self.driver.find_element(By.XPATH, '// *[ @ id = "search"] / div / div / span / input[2]')
-        search_field.clear()
-        search_field.send_keys(item_code)
-        try:
-            wait = WebDriverWait(self.driver, 3)  # wait for up to 3 seconds
-            element = wait.until(
-                ec.presence_of_element_located((By.CSS_SELECTOR, "div.search-result.tt-suggestion.tt-selectable"))
-            )
+        # search_field = self.driver.find_element(By.XPATH, '// *[ @ id = "search"] / div / div / span / input[2]')
+        # search_field.clear()
+        # search_field.send_keys(item_code)
 
+        self.type('// *[ @ id = "search"] / div / div / span / input[2]', item_code)
+        try:
+            # wait = WebDriverWait(self.driver, 3)  # wait for up to 3 seconds
+            # element = wait.until(
+            #     ec.presence_of_element_located((By.CSS_SELECTOR, "div.search-result.tt-suggestion.tt-selectable"))
+            # )
+            self.assert_element_present("div.search-result.tt-suggestion.tt-selectable")
             # Find the link within the element
-            link = element.find_element(By.TAG_NAME, "a")
-            link.click()
+            # link = element.find_element(By.TAG_NAME, "a")
+            # link.click()
+            self.click("a")
         except Exception:
             raise
 
     def scrape_results(self) -> (str, str, str):
         try:
-            stock_status = self.driver.find_element(By.CSS_SELECTOR, 'li.product-stock > span').text
+            # stock_status = self.driver.find_element(By.CSS_SELECTOR, 'li.product-stock > span').text
+            #
+            # trader_price = self.driver.find_element(By.CSS_SELECTOR, 'div.price-group > div.product-price').text
+            # trader_price_number = ''.join(filter(str.isdigit, trader_price))
+            #
+            # consumer_price = self.driver.find_element(By.CSS_SELECTOR, 'div.text-left').text
+            # consumer_price_number = ''.join(filter(str.isdigit, consumer_price))
+            #
+            stock_status = self.get_text('li.product-stock > span')
 
-            trader_price = self.driver.find_element(By.CSS_SELECTOR, 'div.price-group > div.product-price').text
+            trader_price = self.get_text('div.price-group > div.product-price')
             trader_price_number = ''.join(filter(str.isdigit, trader_price))
 
-            consumer_price = self.driver.find_element(By.CSS_SELECTOR, 'div.text-left').text
+            consumer_price = self.get_text('div.text-left')
             consumer_price_number = ''.join(filter(str.isdigit, consumer_price))
 
             return stock_status, trader_price_number, consumer_price_number
@@ -204,21 +331,27 @@ class TechTopScraper(WebScraper):
 
     def login(self):
         try:
-            self.driver.get(self.base_url + '/Login')
+            # self.driver.get(self.base_url + '/Login')
             # self.driver.implicitly_wait(2)
+            self.open(self.base_url + '/Login')
 
-            login_field = self.driver.find_element(By.CSS_SELECTOR, "#ContentPlaceHolder1_Login1_LoginName")
-            pwd_field = self.driver.find_element(By.CSS_SELECTOR, '#ContentPlaceHolder1_Login1_LoginPWD')
-            submit_btn = self.driver.find_element(By.CSS_SELECTOR, '#ContentPlaceHolder1_Login1_submitLogIn')
+            # login_field = self.driver.find_element(By.CSS_SELECTOR, "#ContentPlaceHolder1_Login1_LoginName")
+            # pwd_field = self.driver.find_element(By.CSS_SELECTOR, '#ContentPlaceHolder1_Login1_LoginPWD')
+            # submit_btn = self.driver.find_element(By.CSS_SELECTOR, '#ContentPlaceHolder1_Login1_submitLogIn')
+            #
+            # login_field.send_keys(self.username)
+            # pwd_field.send_keys(self.pwd)
+            # submit_btn.send_keys(Keys.RETURN)
 
-            login_field.send_keys(self.username)
-            pwd_field.send_keys(self.pwd)
-            submit_btn.send_keys(Keys.RETURN)
+            self.type('#ContentPlaceHolder1_Login1_LoginName', self.username)
+            self.type('#ContentPlaceHolder1_Login1_LoginPWD', self.pwd)
+            self.click('#ContentPlaceHolder1_Login1_submitLogIn')
 
-            # Check if login was successful by looking for a known element on the home page
-            WebDriverWait(self.driver, 2).until(
-                ec.presence_of_element_located((By.XPATH, "//*[@id='btnOpenAccount']/div[@class='name']"))
-            )
+            # # Check if login was successful by looking for a known element on the home page
+            # WebDriverWait(self.driver, 2).until(
+            #     ec.presence_of_element_located((By.XPATH, "//*[@id='btnOpenAccount']/div[@class='name']"))
+            # )
+            self.assert_element_present("//*[@id='btnOpenAccount']/div[@class='name']")
             print("Login successful")
 
 
@@ -226,16 +359,19 @@ class TechTopScraper(WebScraper):
             raise
 
     def search_item(self, item_code):
-        search_field = self.driver.find_element(By.XPATH, "//input[@id='search']")
-        search_field.clear()
-        search_field.send_keys(item_code)
-        search_btn = self.driver.find_element(By.ID, "SearchButton")
-        self.driver.execute_script("arguments[0].click();", search_btn)
+        # search_field = self.driver.find_element(By.XPATH, "//input[@id='search']")
+        # search_field.clear()
+        # search_field.send_keys(item_code)
+        # search_btn = self.driver.find_element(By.ID, "SearchButton")
+        # self.driver.execute_script("arguments[0].click();", search_btn)
+
+        self.type("//input[@id='search']", item_code)
+        self.click("#SearchButton")
 
         try:
-            results_container = WebDriverWait(self.driver, 2).until(
-                ec.presence_of_element_located((By.CSS_SELECTOR, 'div.searchresults a'))
-            )
+            # results_container = WebDriverWait(self.driver, 2).until(
+            #     ec.presence_of_element_located((By.CSS_SELECTOR, 'div.searchresults a'))
+            # )
 
             # Wait for the first search result to be clickable
             # first_result = WebDriverWait(self.driver, 10).until(
@@ -243,19 +379,25 @@ class TechTopScraper(WebScraper):
             # )
 
             # Click on the first search result
+            results_container = self.get_element('div.searchresults a')
             self.driver.execute_script("arguments[0].click();", results_container)
         except Exception:
             raise
 
     def scrape_results(self) -> (str, str, str):
         try:
-            WebDriverWait(self.driver, 4).until(
-                ec.presence_of_element_located((By.CLASS_NAME, "productdataplace"))
-            )
+            # WebDriverWait(self.driver, 4).until(
+            #     ec.presence_of_element_located((By.CLASS_NAME, "productdataplace"))
+            # )
             # self.driver.implicitly_wait(4)
-            stock_status = self.driver.find_element(By.CSS_SELECTOR, "div.stockplace span").text
+            # stock_status = self.driver.find_element(By.CSS_SELECTOR, "div.stockplace span").text
+            #
+            # prices = self.driver.find_elements(By.CSS_SELECTOR, "div.price span.pr")
+            # consumer_price = prices[0].text.split(' ')[0].split('.')[0]
+            # trader_price = prices[1].text.split(' ')[0].split('.')[0]
 
-            prices = self.driver.find_elements(By.CSS_SELECTOR, "div.price span.pr")
+            stock_status = self.get_text("div.stockplace span")
+            prices = self.find_elements("div.price span.pr")
             consumer_price = prices[0].text.split(' ')[0].split('.')[0]
             trader_price = prices[1].text.split(' ')[0].split('.')[0]
 
@@ -266,11 +408,11 @@ class TechTopScraper(WebScraper):
 
 class ShalmonScraper(WebScraper):
     def __init__(self, headless_mode=True):
-        # shalmon_url = 'https://shalmonmusic.co.il'
         super().__init__(3, headless_mode)
 
     def login(self):
-        self.driver.get(self.base_url + '/my-account')
+        # self.driver.get(self.base_url + '/my-account')
+        self.open(self.base_url + '/my-account')
 
         try:
             # login_field = self.driver.find_element(By.CSS_SELECTOR, "#username")
@@ -281,10 +423,15 @@ class ShalmonScraper(WebScraper):
             # pwd_field.send_keys(self.pwd)
             # submit_btn.send_keys(Keys.RETURN)
 
-            self.driver.type("#username", self.username)
-            self.driver.type("#password", self.pwd)
-            self.driver.click('button[name="login"]')
-            self.driver.assert_element(".woocommerce-my-account-wrapper")
+            # self.driver.type("#username", self.username)
+            # self.driver.type("#password", self.pwd)
+            # self.driver.click('button[name="login"]')
+            # self.driver.assert_element(".woocommerce-my-account-wrapper")
+
+            self.type("#username", self.username)
+            self.type("#password", self.pwd)
+            self.click('button[name="login"]')
+            self.assert_element(".woocommerce-my-account-wrapper")
 
             # # Check if login was successful by looking for a known element on the home page
             # WebDriverWait(self.driver, 10).until(
@@ -297,16 +444,18 @@ class ShalmonScraper(WebScraper):
             raise
 
     def search_item(self, item_code):
-        search_field = self.driver.find_element(By.XPATH, "//input[@aria-label='Search']")
-        search_field.clear()
-        search_field.send_keys(item_code)
-        search_btn = self.driver.find_element(By.CLASS_NAME, "searchsubmit")
-        # self.driver.execute_script("arguments[0].click();", search_btn)
-        search_btn.click()
+        # search_field = self.driver.find_element(By.XPATH, "//input[@aria-label='Search']")
+        # search_field.clear()
+        # search_field.send_keys(item_code)
+        # search_btn = self.driver.find_element(By.CLASS_NAME, "searchsubmit")
+        # # self.driver.execute_script("arguments[0].click();", search_btn)
+        # search_btn.click()
 
+        self.type("//input[@aria-label='Search']")
+        self.click('searchsubmit')
         try:
             results_container = WebDriverWait(self.driver, 2).until(
-                ec.presence_of_element_located((By.CLASS_NAME, 'wd-product'))
+                EC.presence_of_element_located((By.CLASS_NAME, 'wd-product'))
             )
 
             # Wait for the first search result to be clickable
@@ -324,6 +473,8 @@ class ShalmonScraper(WebScraper):
 
 # Usage example
 def main():
+    pass
+    '''
     # Music Center
     headless_mode = True
     products = ["4260685059885", "AF510M OP"]
@@ -343,8 +494,8 @@ def main():
 
     except Exception as e:
         print(f"An error occurred: {e}")
-    finally:
-        music_center_scraper.close()
+    # finally:
+    # music_center_scraper.close()
 
     # Art Studio
     headless_mode = False
@@ -366,8 +517,8 @@ def main():
 
     except Exception as e:
         print(f"An error occurred: {e}")
-    finally:
-        art_studio_scraper.close()
+    # finally:
+    #     art_studio_scraper.close()
 
     # Tech Top
     headless_mode = True
@@ -389,8 +540,8 @@ def main():
 
     except Exception as e:
         print(f"An error occurred: {e}")
-    finally:
-        tech_top_scraper.close()
+    # finally:
+    #     tech_top_scraper.close()
 
     # Shalmon
     headless_mode = False
@@ -412,9 +563,17 @@ def main():
 
     except Exception as e:
         print(f"An error occurred: {e}")
-    finally:
-        shalmon_scraper.close()
+    # finally:
+    #     shalmon_scraper.close()
+
+    '''
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    items = ["4260685059885", "AF510M OP"]
+    scraper = MusicCenterScraper(items, headless_mode=False, is_test_env=False)
+    try:
+        scraper.start()
+    except WebScraperException as e:
+        print(f"Error: {e}")
