@@ -1,21 +1,11 @@
-# import math
-
-# from selenium import webdriver
-
-# from selenium.webdriver.common.keys import Keys
-# from selenium.webdriver.chrome.service import Service
-# from selenium.webdriver.chrome.options import Options
-# import undetected_chromedriver as UC
-# import time
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import InvalidElementStateException, NoSuchElementException, TimeoutException
-from seleniumbase import Driver, BaseCase
+from seleniumbase import BaseCase
 from services.config_service import ConfigService
 from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
-
 
 class WebScraperException(Exception):
     def __init__(self, msg):
@@ -47,30 +37,16 @@ class WebScraper(BaseCase):
         self.items = items
         self.headless_mode = headless_mode
         self.is_test_env = is_test_env
+
         if not self.is_test_env:
             # Initialize ChromeDriver with WebDriverManager
             options = webdriver.ChromeOptions()
-            if headless_mode:
+            if self.headless_mode:
                 options.add_argument("--headless")
             self.driver = webdriver.Chrome(service=webdriver.chrome.service.Service(ChromeDriverManager().install()),
                                            options=options)
         else:
             self.driver = None  # Handled by SeleniumBase in test mode
-
-        # self.profile_path = "/chrome_profile"
-        # self.profile_directory = "Profile 1"
-        # self.driver = self.init_driver()
-        # self.session = requests.session()
-
-    # def init_driver(self):
-    # service = Service('C:/Apps/chromedriver-win64/chromedriver.exe')
-    # options = Options()
-    # options.add_argument(f"--user-data-dir={self.profile_path}")
-    # options.add_argument(f'--profile-directory={self.profile_directory}')
-    # if self.headless_mode:
-    #     options.add_argument("--headless=new")
-    # return webdriver.Chrome(service=service, options=options)
-    # return SBDriver(uc=True, headless=self.headless_mode)
 
     def setUp(self):
         """Initialize SeleniumBase's driver."""
@@ -91,7 +67,7 @@ class WebScraper(BaseCase):
         else:
             self.driver.get(url)
 
-    def type(self, selector, text, clear_before=True, wait_time=60):
+    def type(self, selector, text, clear_before=True, wait_time=15):
         """
         Types text into an input field.
 
@@ -99,7 +75,7 @@ class WebScraper(BaseCase):
             selector (str): The CSS selector of the input field.
             text (str): The text to type into the field.
             clear_before (bool): Whether to clear the field before typing. Default is True.
-            wait_time (int): How long to wait for the element to become interactable. Default is 10 seconds.
+            wait_time (int): How long to wait for the element to become interactable. Default is 15 seconds.
         """
         if self.is_test_env:
             super().type(selector, text)
@@ -120,19 +96,50 @@ class WebScraper(BaseCase):
                 print(f"Element not found or not interactable: {selector}")
                 raise WebScraperException(f"Element not found or not interactable: {selector}")
 
-    def click(self, selector):
+    def click(self, selector, wait_time=15):
+        """
+        Clicks an element.
+
+        Args:
+            selector (str): The CSS selector of the element to click.
+            wait_time (int): How long to wait for the element to become clickable. Default is 15 seconds.
+        """
         if self.is_test_env:
             super().click(selector)
         else:
-            element = self.driver.find_element(By.CSS_SELECTOR, selector)
-            element.click()
+            try:
+                # Wait for the element to be clickable
+                element = WebDriverWait(self.driver, wait_time).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                )
+                element.click()
+            except (TimeoutException, NoSuchElementException):
+                print(f"Element not found or not clickable: {selector}")
+                raise WebScraperException(f"Element not found or not clickable: {selector}")
 
-    def get_text(self, selector):
+    def get_text(self, selector, wait_time=60):
+        """
+        Retrieves the text of an element.
+
+        Args:
+            selector (str): The CSS selector of the element to get text from.
+            wait_time (int): How long to wait for the element to become visible. Default is 60 seconds.
+
+        Returns:
+            str: The text of the element.
+        """
         if self.is_test_env:
             return super().get_text(selector)
         else:
-            element = self.driver.find_element(By.CSS_SELECTOR, selector)
-            return element.text
+            try:
+                # Wait for the element to be visible
+                element = WebDriverWait(self.driver, wait_time).until(
+                    EC.visibility_of_element_located((By.CSS_SELECTOR, selector))
+                )
+                return element.text
+            except (TimeoutException, NoSuchElementException):
+                print(f"Element not found or not visible: {selector}")
+                raise WebScraperException(f"Element not found or not visible: {selector}")
 
     def login(self):
         raise NotImplementedError("Subclasses should implement this method")
@@ -143,11 +150,8 @@ class WebScraper(BaseCase):
     def scrape_results(self) -> (str, str, str):
         raise NotImplementedError("Subclasses should implement this method")
 
-    # def close(self):
-    #     self.driver.quit()
-
     def handle_results(self, results):
-        pass  # to be implemented
+        print(results)
 
     def start(self):
         self.setUp()
@@ -155,8 +159,8 @@ class WebScraper(BaseCase):
             self.login()
             for item in self.items:
                 self.search_item(item)
-                results = self.scrape_results(item)
-                # self.handle_results(results)
+                results = self.scrape_results()
+                self.handle_results(results)
         finally:
             self.tearDown()
 
@@ -170,64 +174,25 @@ class MusicCenterScraper(WebScraper):
     def login(self):
         try:
             login_endpoint = '/system/login'
-            # self.driver.get(self.base_url + login_endpoint)
-            # self.driver.implicitly_wait(2)
             self.open(self.base_url + login_endpoint)
-
-            # username_field, pwd_field = self.driver.find_elements(By.CSS_SELECTOR, "input[role='textbox']")
-            # submit_btn = self.driver.find_element(By.CSS_SELECTOR, "dx-button[aria-label='כניסה למערכת']")
-
-            print("Entering login credentials")
-
-            # username_field.send_keys(self.username)
-            # pwd_field.send_keys(self.pwd)
-            # submit_btn.send_keys(Keys.RETURN)
-
-            # self.driver.implicitly_wait(2)
-
             self.type("input[type='text'][role='textbox']", self.username)
             self.type("input[type='password']", self.pwd)
             self.click("dx-button[aria-label='כניסה למערכת']")
-            # Check if login was successful by looking for a known element on the home page
-            # WebDriverWait(self.driver, 4).until(
-            #     ec.presence_of_element_located((By.CSS_SELECTOR, "dx-button[aria-label='התחל הזמנה']"))
-            # )
-            # self.assert_element_present("dx-button[aria-label='התחל הזמנה']")
-            print("Login successful")
         except (NoSuchElementException, TimeoutException):
-            # self.close()
             raise WebScraperException("Login failed: Incorrect credentials or element not found\n")
 
     def search_item(self, item_code):
         try:
             if self.is_first_search:
-                # self.driver.find_element(By.CSS_SELECTOR, "dx-button[aria-label='התחל הזמנה']").send_keys(Keys.RETURN)
                 self.click("dx-button[aria-label='התחל הזמנה']")
                 self.is_first_search = False
-            # search_field = self.driver.find_element(By.CSS_SELECTOR, "input.dx-texteditor-input")
-            # search_field.clear()
-            # search_field.send_keys(item_code)
-            # search_field.send_keys(Keys.RETURN)
 
             self.type("input.dx-texteditor-input", item_code)
-            # print("Search initiated for item:", item_code)
-            # time.sleep(5)  # Adjust the sleep time as needed
         except NoSuchElementException:
-            # self.close()
             raise WebScraperException("Search failed. Search field not found")
 
     def scrape_results(self) -> (str, str, str):
         try:
-            # WebDriverWait(self.driver, 4).until(
-            #     EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='stock-custom-text']"))
-            # )
-            # self.driver.implicitly_wait(4)
-            # stock_status = self.driver.find_element(By.CSS_SELECTOR, "div[class*='stock-custom-text']").text
-            # trader_price = self.driver.find_element(By.CLASS_NAME, "price").text
-            # price_switch = self.driver.find_element(By.CLASS_NAME, "alternative-price")
-            # price_switch.click()
-            # consumer_price = self.driver.find_element(By.CLASS_NAME, "price").text
-
             stock_status = self.get_text("div[class*='stock-custom-text']")
             trader_price = self.get_text(".price")
             self.click(".alternative-price")
@@ -235,7 +200,7 @@ class MusicCenterScraper(WebScraper):
 
             return stock_status, trader_price, consumer_price
         except NoSuchElementException:
-            raise
+            raise WebScraperException("Scraping results failed: Element not found")
 
 
 class ArtStudioScraper(WebScraper):
@@ -577,3 +542,5 @@ if __name__ == "__main__":
         scraper.start()
     except WebScraperException as e:
         print(f"Error: {e}")
+
+
