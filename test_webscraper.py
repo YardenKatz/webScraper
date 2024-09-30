@@ -186,25 +186,35 @@ class TestMusicCenterScraper(BaseCase):
 
     @pytest.mark.usefixtures("sb")  # This ensures SeleniumBase's setup/teardown
     def test_music_center_login(self):
-        pass
         self.scraper = MusicCenterScraper(["AF510M OP", "4260685059885"], headless_mode=True, is_test_env=True)
         self.scraper.setUp()
         try:
-            pass
             self.scraper.login()
-        #     self.scraper.assert_exact_text("דף הבית", "div.title")
+            self.scraper.assert_exact_text("דף הבית", "div.title")
         finally:
             self.scraper.tearDown()
 
     def test_music_center_search(self):
-        pass
-        # self.scraper = MusicCenterScraper(["AF510M OP", "4260685059885"], headless_mode=True, is_test_env=True)
-        # self.scraper.setUp()
-        # try:
-        #     self.scraper.login()
-        #     self.scraper.search_item("AF 1111111111879645133546767#$%#$(124234^&")
-        #     self.scraper.assert_element_not_present("div.item-container")
-        #     self.scraper.search_item("AF510M OP")
-        #     self.scraper.assert_element("div.item-container", timeout=15)
-        # finally:
-        #     self.scraper.tearDown()
+        self.scraper = MusicCenterScraper(["AF510M OP", "4260685059885"], headless_mode=True, is_test_env=True)
+        self.scraper.setUp()
+        try:
+            self.scraper.login()
+            self.scraper.search_item("AF 1111111111879645133546767#$%#$(124234^&")
+            # self.scraper.assert_element("div.item-container", timeout=2)
+            self.scraper.assert_element_not_present("div.item-container")
+            self.scraper.wait(2)
+            self.scraper.search_item("AF510M OP")
+            self.scraper.assert_element("div.item-container", timeout=3)
+        finally:
+            self.scraper.tearDown()
+
+    def test_music_center_scrape_results(self):
+        self.scraper = MusicCenterScraper(["AF510M OP"], headless_mode=True, is_test_env=True)
+        self.scraper.setUp()
+        try:
+            self.scraper.login()
+            self.scraper.search_item("AF510M OP")
+            # self.scraper.assert_element("div.item-container", timeout=2)
+            self.scraper.assertEqual(('קיים במלאי', '364', '655'), self.scraper.scrape_results())
+        finally:
+            self.scraper.tearDown()

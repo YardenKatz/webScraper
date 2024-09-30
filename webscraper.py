@@ -192,6 +192,7 @@ class MusicCenterScraper(WebScraper):
             raise WebScraperException("Search failed. Search field not found")
 
     def scrape_results(self) -> (str, str, str):
+        self.wait(2)
         try:
             stock_status = self.get_text("div[class*='stock-custom-text']")
             trader_price = self.get_text(".price")
@@ -537,7 +538,7 @@ def main():
 if __name__ == "__main__":
     # main()
     items = ["4260685059885", "AF510M OP"]
-    scraper = MusicCenterScraper(items, headless_mode=False, is_test_env=False)
+    scraper = MusicCenterScraper(items, headless_mode=True, is_test_env=False)
     try:
         scraper.start()
     except WebScraperException as e:
