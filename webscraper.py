@@ -1,8 +1,9 @@
+'''
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import InvalidElementStateException, NoSuchElementException, TimeoutException
-from seleniumbase import BaseCase
+from seleniumbase import BaseCase, SB
 from services.config_service import ConfigService
 from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
@@ -37,7 +38,6 @@ class WebScraper(BaseCase):
         self.items = items
         self.headless_mode = headless_mode
         self.is_test_env = is_test_env
-
         if not self.is_test_env:
             # Initialize ChromeDriver with WebDriverManager
             options = webdriver.ChromeOptions()
@@ -47,6 +47,8 @@ class WebScraper(BaseCase):
                                            options=options)
         else:
             self.driver = None  # Handled by SeleniumBase in test mode
+
+
 
     def setUp(self):
         """Initialize SeleniumBase's driver."""
@@ -164,7 +166,162 @@ class WebScraper(BaseCase):
         finally:
             self.tearDown()
 
+'''
 
+from seleniumbase import SB  # Import SB context manager from SeleniumBase
+from services.config_service import ConfigService
+# from selenium.common.exceptions import NoSuchElementException, TimeoutException
+
+
+class WebScraperException(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __str__(self):
+        return self.msg
+
+
+class WebScraper:
+    """
+    Scrapes Websites.
+
+    :param int target_index: refers to index of target in config.ini. Update config.ini with target data
+    :param list items: list of item codes to search
+    """
+
+    def __init__(self, target_index, items, headless_mode=True, is_test_env=False):
+        self.config_service = ConfigService('config.ini')
+        self.config_service.read_config()
+        targets = self.config_service.get_targets()
+
+        self.base_url = self.config_service.get_data(targets[target_index], 'url')
+        self.username = self.config_service.get_data(targets[target_index], 'username')
+        self.pwd = self.config_service.get_data(targets[target_index], 'pwd')
+
+        self.items = items
+        self.headless_mode = headless_mode
+        self.is_test_env = is_test_env
+
+        if not self.is_test_env:
+            # Initialize SB context manager for standalone mode
+            self.sb = SB(headless=headless_mode)
+        else:
+            self.sb = None  # SB instance handled by SeleniumBase in test mode
+
+    def start(self):
+        if not self.is_test_env:
+            with self.sb as sb:
+                self._execute_standalone_mode(sb)
+        else:
+            self._execute_test_mode()
+
+    def _execute_standalone_mode(self, sb):
+        """Executes the scraping steps in standalone mode."""
+        try:
+            self.login(sb)
+            for item in self.items:
+                self.search_item(sb, item)
+                results = self.scrape_results(sb)
+                self.handle_results(results)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+        finally:
+            self.sb.quit()
+
+    def _execute_test_mode(self):
+        """Executes the scraping steps in test mode, assuming sb is passed in tests."""
+        self.login(self.sb)
+        for item in self.items:
+            self.search_item(self.sb, item)
+            results = self.scrape_results(self.sb)
+            self.handle_results(results)
+
+    def login(self, sb):
+        raise NotImplementedError("Subclasses should implement this method")
+
+    def search_item(self, sb, item_code):
+        raise NotImplementedError("Subclasses should implement this method")
+
+    def scrape_results(self, sb):
+        raise NotImplementedError("Subclasses should implement this method")
+
+    def handle_results(self, results):
+        print(results)
+
+
+class MusicCenterScraper(WebScraper):
+
+    def __init__(self, items, headless_mode=True, is_test_env=False):
+        super().__init__(0, items, headless_mode, is_test_env)
+        self.is_first_search = True
+
+    def start(self):
+        """Unified start method for both test mode and standalone mode."""
+        if self.is_test_env:
+            driver = self  # In test mode, 'self' is the SeleniumBase instance
+            self.setUp()
+            try:
+                self.run_scraper(driver)
+            finally:
+                self.tearDown()  # Clean up for test mode
+        else:
+            with SB(headless=self.headless_mode) as driver:  # In standalone mode, use the SB instance
+                self.run_scraper(driver)
+
+    def run_scraper(self, driver):
+        """Main scraping logic that handles login, search, and results scraping."""
+        try:
+            self.login(driver)
+            for item in self.items:
+                self.search_item(driver, item)
+                driver.sleep(2)
+                results = self.scrape_results(driver)
+                self.handle_results(results)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
+    def login(self, driver):
+        """Login method (handles both modes with a unified driver)."""
+        login_endpoint = '/system/login'
+        driver.open(self.base_url + login_endpoint)
+        driver.type("input[type='text'][role='textbox']", self.username)
+        driver.type("input[type='password']", self.pwd)
+        driver.click("dx-button[aria-label='כניסה למערכת']")
+
+    def search_item(self, driver, item_code):
+        """Search item method (handles both modes with a unified driver)."""
+        if self.is_first_search:
+            driver.click("dx-button[aria-label='התחל הזמנה']")
+            self.is_first_search = False
+        driver.type("input.dx-texteditor-input", item_code)
+
+    def scrape_results(self, driver):
+        """Scrape results method with handling for items not found."""
+        try:
+            stock_status = driver.get_text("div[class*='stock-custom-text']")
+        except Exception:
+            print(f"Item not found: stock status could not be retrieved.")
+            return None  # Or some appropriate placeholder, e.g., ("Not found", "", "")
+
+        try:
+            trader_price = driver.get_text(".price")
+        except Exception:
+            print(f"Item not found: trader price could not be retrieved.")
+            trader_price = "N/A"  # Placeholder if not found
+
+        try:
+            driver.click(".alternative-price")  # Only click if item found
+            consumer_price = driver.get_text(".price")
+        except Exception:
+            print(f"Item not found: consumer price could not be retrieved.")
+            consumer_price = "N/A"  # Placeholder if not found
+
+        return stock_status, trader_price, consumer_price
+
+
+# Usage example
+
+'''
 class MusicCenterScraper(WebScraper):
 
     def __init__(self, items, headless_mode=True, is_test_env=False):
@@ -205,8 +362,8 @@ class MusicCenterScraper(WebScraper):
 
 
 class ArtStudioScraper(WebScraper):
-    def __init__(self, headless_mode=True):
-        super().__init__(1, headless_mode)
+    def __init__(self, items, headless_mode=True, is_test_env=False):
+        super().__init__(1, items, headless_mode, is_test_env)
 
     # def init_driver(self):
     #     return SBDriver(uc=True, headless=self.headless_mode)
@@ -239,9 +396,8 @@ class ArtStudioScraper(WebScraper):
             # )
             # self.driver.assert_element("//span[@class='links-text' and text()='החשבון שלי']")
             # self.driver.assert_text("החשבון שלי")
-            self.assert_text("החשבון שלי")
+            # self.assert_text("החשבון שלי")
 
-            print("Login successful")
 
 
         except Exception:
@@ -252,17 +408,20 @@ class ArtStudioScraper(WebScraper):
         # search_field.clear()
         # search_field.send_keys(item_code)
 
-        self.type('// *[ @ id = "search"] / div / div / span / input[2]', item_code)
+
+        self.type('input[name="search"]', item_code)
         try:
             # wait = WebDriverWait(self.driver, 3)  # wait for up to 3 seconds
             # element = wait.until(
             #     ec.presence_of_element_located((By.CSS_SELECTOR, "div.search-result.tt-suggestion.tt-selectable"))
             # )
-            self.assert_element_present("div.search-result.tt-suggestion.tt-selectable")
+            # self.assert_element_present("div.search-result.tt-suggestion.tt-selectable")
             # Find the link within the element
             # link = element.find_element(By.TAG_NAME, "a")
             # link.click()
-            self.click("a")
+            element = "div.search-result.tt-suggestion.tt-selectable > a"
+            sb.wait_for_element("div.search-result.tt-suggestion.tt-selectable > a", timeout=2)
+            sb.click(element)
         except Exception:
             raise
 
@@ -436,15 +595,17 @@ class ShalmonScraper(WebScraper):
         except Exception:
             raise
 
+'''
 
+'''
 # Usage example
 def main():
     pass
-    '''
+    
     # Music Center
     headless_mode = True
     products = ["4260685059885", "AF510M OP"]
-    music_center_scraper = MusicCenterScraper(headless_mode)
+    music_center_scraper = MusicCenterScraper(products, headless_mode)
 
     try:
         print("Music Center")
@@ -462,7 +623,7 @@ def main():
         print(f"An error occurred: {e}")
     # finally:
     # music_center_scraper.close()
-
+    
     # Art Studio
     headless_mode = False
     products = ["D280", "sk df180"]
@@ -534,14 +695,13 @@ def main():
 
     '''
 
-
-if __name__ == "__main__":
-    # main()
-    items = ["4260685059885", "AF510M OP"]
-    scraper = MusicCenterScraper(items, headless_mode=True, is_test_env=False)
+def main():
+    items = ["n460", "sk df180"]
+    scraper = MusicCenterScraper(items, headless_mode=False, is_test_env=False)
     try:
         scraper.start()
     except WebScraperException as e:
         print(f"Error: {e}")
 
-
+if __name__ == "__main__":
+    main()

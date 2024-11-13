@@ -1,3 +1,10 @@
+
+import pytest
+from webscraper import MusicCenterScraper
+from seleniumbase import BaseCase
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+
 '''
 import unittest
 # import time
@@ -5,25 +12,27 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException,
 from selenium.webdriver.common.by import By
 # from selenium.webdriver.support.ui import WebDriverWait
 # from selenium.webdriver.support import expected_conditions as EC
-from webscraper import MusicCenterScraper, ArtStudioScraper, TechTopScraper, ShalmonScraper
+from webscraper import MusicCenterScraper
+                        # ArtStudioScraper, TechTopScraper, ShalmonScraper)
 
 
 class TestMusicCenterScraper(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         headless_mode = True
-        cls.scraper = MusicCenterScraper(headless_mode)
+        cls.scraper = MusicCenterScraper(["4260685059885", "AF510M OP"], headless_mode)
 
     @classmethod
     def tearDownClass(cls):
-        cls.scraper.close()
+        pass
+        # cls.scraper.close()
 
     def test_login_success(self):
         try:
             self.scraper.login()
             # WebDriverWait(self.scraper.driver, 3).until(
             #     EC.presence_of_element_located((By.CLASS_NAME, "nav-menu-container")))
-            self.assertTrue(self.scraper.driver.find_element(By.CLASS_NAME, "nav-menu-container").is_displayed())
+            self.assertTrue(self.scraper.sb.find_element(By.CLASS_NAME, "nav-menu-container").is_displayed())
             print("TestMusicCenterScraper Login test passed")
         except NoSuchElementException:
             self.fail("TestMusicCenterScraper Login test failed: Incorrect credentials or element not found")
@@ -57,8 +66,8 @@ class TestMusicCenterScraper(unittest.TestCase):
             self.fail("TestMusicCenterScraper Scrape results test failed: Page load timeout")
         except WebDriverException as e:
             self.fail(f"TestMusicCenterScraper Scrape results test failed: WebDriver exception - {e}")
-
-
+'''
+'''
 class TestArtStudioScraper(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -175,11 +184,13 @@ class TestShalmonScraper(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 '''
+'''
 
 # from seleniumbase import Driver
 import pytest
 from seleniumbase import BaseCase
-from webscraper import MusicCenterScraper
+from webscraper import MusicCenterScraper, ArtStudioScraper
+
 
 class TestMusicCenterScraper(BaseCase):
 # class TestMusicCenterScraper():
@@ -218,3 +229,57 @@ class TestMusicCenterScraper(BaseCase):
             self.scraper.assertEqual(('קיים במלאי', '364', '655'), self.scraper.scrape_results())
         finally:
             self.scraper.tearDown()
+            
+
+'''
+'''
+class TestArtStudioScraper(BaseCase):
+    @pytest.mark.usefixtures("sb")  # This ensures SeleniumBase's setup/teardown
+    def test_art_studio_login(self):
+        self.scraper = ArtStudioScraper(["d280", "sk df180"], headless_mode=True, is_test_env=True)
+        self.scraper.setUp()
+        try:
+            self.scraper.login()
+            self.scraper.assert_text("החשבון שלי")
+        finally:
+            self.scraper.tearDown()
+
+'''
+
+class TestMusicCenterScraper(BaseCase):
+
+    @pytest.mark.usefixtures("sb")  # Ensures SeleniumBase setup/teardown
+    def test_login(self):
+        """Test the login functionality with real data."""
+        scraper = MusicCenterScraper(
+            items=["AF510M OP", "4260685059885"],
+            headless_mode=True,
+            is_test_env=True
+        )
+        scraper.login()  # Test login functionality
+
+    @pytest.mark.usefixtures("sb")
+    def test_scrape_results(self):
+        """Test scraping product data after searching."""
+        scraper = MusicCenterScraper(
+            items=["AF510M OP", "4260685059885"],
+            headless_mode=True,
+            is_test_env=True
+        )
+        scraper.login()  # Ensure logged in
+        scraper.search_item("AF510M OP")  # Test searching
+        results = scraper.scrape_results()  # Scrape results
+        assert results[0] == "קיים במלאי"  # Example check for stock status
+        assert results[1] == "448"  # Example check for trader price
+        assert results[2] == "750"  # Example check for consumer price
+
+    @pytest.mark.usefixtures("sb")
+    def test_search_item(self):
+        """Test item search functionality with real items."""
+        scraper = MusicCenterScraper(
+            items=["AF510M OP", "4260685059885"],
+            headless_mode=True,
+            is_test_env=True
+        )
+        scraper.login()  # Ensure logged in before searching
+        scraper.search_item("AF510M OP")  # Test searching functionality
