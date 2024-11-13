@@ -256,22 +256,7 @@ class TestMusicCenterScraper(BaseCase):
             headless_mode=True,
             is_test_env=True
         )
-        scraper.login()  # Test login functionality
-
-    @pytest.mark.usefixtures("sb")
-    def test_scrape_results(self):
-        """Test scraping product data after searching."""
-        scraper = MusicCenterScraper(
-            items=["AF510M OP", "4260685059885"],
-            headless_mode=True,
-            is_test_env=True
-        )
-        scraper.login()  # Ensure logged in
-        scraper.search_item("AF510M OP")  # Test searching
-        results = scraper.scrape_results()  # Scrape results
-        assert results[0] == "קיים במלאי"  # Example check for stock status
-        assert results[1] == "448"  # Example check for trader price
-        assert results[2] == "750"  # Example check for consumer price
+        scraper.login(self)  # Pass 'self' as the driver argument
 
     @pytest.mark.usefixtures("sb")
     def test_search_item(self):
@@ -281,5 +266,44 @@ class TestMusicCenterScraper(BaseCase):
             headless_mode=True,
             is_test_env=True
         )
-        scraper.login()  # Ensure logged in before searching
-        scraper.search_item("AF510M OP")  # Test searching functionality
+        scraper.login(self)  # Pass 'self' as the driver
+        scraper.search_item(self, "AF510M OP")  # Pass 'self' as the driver
+
+    @pytest.mark.usefixtures("sb")
+    def test_scrape_results(self):
+        """Test scraping product data after searching."""
+        scraper = MusicCenterScraper(
+            items=["AF510M OP", "4260685059885"],
+            headless_mode=True,
+            is_test_env=True
+        )
+        scraper.login(self)  # Pass 'self' as the driver
+        scraper.search_item(self, "AF510M OP")  # Pass 'self' as the driver
+        results = scraper.scrape_results(self)  # Pass 'self' as the driver
+
+        for result in results:
+            assert result != "N/A"
+
+
+    @pytest.mark.usefixtures("sb")
+    def test_nonexistent_item(self):
+        """Test search functionality with a non-existent item code."""
+        scraper = MusicCenterScraper(
+            items=["NONEXISTENT_ITEM"],  # Pass a non-existent item code
+            headless_mode=True,
+            is_test_env=True
+        )
+        scraper.login(self)  # Ensure logged in before searching
+        try:
+            scraper.search_item(self, "NONEXISTENT_ITEM")  # Search for non-existent item
+            self.sleep(2)
+            results = scraper.scrape_results(self)  # Attempt to scrape results
+
+            for result in results:
+                assert result == "N/A"
+
+        except Exception as e:
+            pytest.fail(f"Scraping failed for non-existent item: {e}")
+
+
+

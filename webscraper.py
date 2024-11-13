@@ -296,27 +296,17 @@ class MusicCenterScraper(WebScraper):
         driver.type("input.dx-texteditor-input", item_code)
 
     def scrape_results(self, driver):
-        """Scrape results method with handling for items not found."""
+        """Scrape results method (handles both modes with a unified driver)."""
         try:
             stock_status = driver.get_text("div[class*='stock-custom-text']")
-        except Exception:
-            print(f"Item not found: stock status could not be retrieved.")
-            return None  # Or some appropriate placeholder, e.g., ("Not found", "", "")
-
-        try:
             trader_price = driver.get_text(".price")
-        except Exception:
-            print(f"Item not found: trader price could not be retrieved.")
-            trader_price = "N/A"  # Placeholder if not found
-
-        try:
-            driver.click(".alternative-price")  # Only click if item found
+            driver.click(".alternative-price")
             consumer_price = driver.get_text(".price")
+            return stock_status, trader_price, consumer_price
         except Exception:
-            print(f"Item not found: consumer price could not be retrieved.")
-            consumer_price = "N/A"  # Placeholder if not found
-
-        return stock_status, trader_price, consumer_price
+            # Return placeholder values if item is not found
+            print("Item not found: stock status could not be retrieved.")
+            return "N/A", "N/A", "N/A"
 
 
 # Usage example
@@ -697,7 +687,7 @@ def main():
 
 def main():
     items = ["n460", "sk df180"]
-    scraper = MusicCenterScraper(items, headless_mode=False, is_test_env=False)
+    scraper = MusicCenterScraper(items, headless_mode=True, is_test_env=False)
     try:
         scraper.start()
     except WebScraperException as e:
