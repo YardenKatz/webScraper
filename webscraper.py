@@ -167,10 +167,16 @@ class WebScraper(BaseCase):
             self.tearDown()
 
 '''
+from time import sleep
 
+import os
 from seleniumbase import SB  # Import SB context manager from SeleniumBase
 from services.config_service import ConfigService
-# from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
 
 class WebScraperException(Exception):
@@ -221,8 +227,9 @@ class WebScraper:
             self.login(sb)
             for item in self.items:
                 self.search_item(sb, item)
+                # self.sleep(2)
                 results = self.scrape_results(sb)
-                self.handle_results(results)
+                self.handle_results(item, results)
         except Exception as e:
             print(f"An error occurred: {e}")
         finally:
@@ -233,8 +240,9 @@ class WebScraper:
         self.login(self.sb)
         for item in self.items:
             self.search_item(self.sb, item)
+            # self.sleep(2)
             results = self.scrape_results(self.sb)
-            self.handle_results(results)
+            self.handle_results(item, results)
 
     def login(self, sb):
         raise NotImplementedError("Subclasses should implement this method")
@@ -245,8 +253,8 @@ class WebScraper:
     def scrape_results(self, sb):
         raise NotImplementedError("Subclasses should implement this method")
 
-    def handle_results(self, results):
-        print(results)
+    def handle_results(self, item, results):
+        print("item " + item + ": ", results)
 
 
 class MusicCenterScraper(WebScraper):
@@ -265,7 +273,9 @@ class MusicCenterScraper(WebScraper):
             finally:
                 self.tearDown()  # Clean up for test mode
         else:
-            with SB(headless=self.headless_mode) as driver:  # In standalone mode, use the SB instance
+            # Standalone mode: Set options via environment variables
+            os.environ["SB_OPTIONS"] = "--window-size=1920,1080 --disable-gpu"
+            with SB(headless=self.headless_mode) as driver:
                 self.run_scraper(driver)
 
     def run_scraper(self, driver):
@@ -274,9 +284,10 @@ class MusicCenterScraper(WebScraper):
             self.login(driver)
             for item in self.items:
                 self.search_item(driver, item)
-                driver.sleep(2)
+                # sleep(5)
+                # driver.sleep(5)
                 results = self.scrape_results(driver)
-                self.handle_results(results)
+                self.handle_results(item, results)
         except Exception as e:
             print(f"An error occurred: {e}")
 
@@ -290,22 +301,42 @@ class MusicCenterScraper(WebScraper):
 
     def search_item(self, driver, item_code):
         """Search item method (handles both modes with a unified driver)."""
-        if self.is_first_search:
-            driver.click("dx-button[aria-label='התחל הזמנה']")
-            self.is_first_search = False
-        driver.type("input.dx-texteditor-input", item_code)
+        try:
+            if self.is_first_search:
+                driver.click("dx-button[aria-label='התחל הזמנה']")
+                self.is_first_search = False
+
+            driver.clear("input.dx-texteditor-input")
+
+            # Find the element to check for staleness before updating
+            element_to_check = driver.find_element(By.CSS_SELECTOR, ".price")
+            original_text = element_to_check.text  # Store the original text before updating
+
+            # Perform the search action
+            driver.type("input.dx-texteditor-input", item_code)
+
+            # Wait for the previous element to become stale or change text
+            WebDriverWait(driver, 10).until(
+                EC.staleness_of(element_to_check)
+            )
+            # Optional: Wait for the new content in '.price' to appear
+            WebDriverWait(driver, 10).until(
+                lambda driver: driver.find_element(By.CSS_SELECTOR, ".price").text != original_text
+            )
+        except Exception as e:
+            print("Search failed. item " + item_code + " not found")
 
     def scrape_results(self, driver):
         """Scrape results method (handles both modes with a unified driver)."""
         try:
-            stock_status = driver.get_text("div[class*='stock-custom-text']")
-            trader_price = driver.get_text(".price")
-            driver.click(".alternative-price")
-            consumer_price = driver.get_text(".price")
+            stock_status = driver.get_text(By.CSS_SELECTOR, "div[class*='stock-custom-text']", 2)
+            trader_price = driver.get_text(By.CSS_SELECTOR, ".price", 2)
+            driver.click(By.CSS_SELECTOR, ".alternative-price",2)
+            consumer_price = driver.get_text(By.CSS_SELECTOR, ".price", 2)
             return stock_status, trader_price, consumer_price
-        except Exception:
+        except Exception as e :
             # Return placeholder values if item is not found
-            print("Item not found: stock status could not be retrieved.")
+            print("Item not found: item data could not be retrieved.")
             return "N/A", "N/A", "N/A"
 
 
@@ -686,7 +717,7 @@ def main():
     '''
 
 def main():
-    items = ["n460", "sk df180"]
+    items = ["NON_EXISTANT_ITEM", "IMT-202", "sk df180", "n460"]
     scraper = MusicCenterScraper(items, headless_mode=True, is_test_env=False)
     try:
         scraper.start()
@@ -695,3 +726,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+     # TODO: update waiting mechanism to work in headless mode. see chatgpt
