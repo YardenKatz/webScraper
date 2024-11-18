@@ -178,6 +178,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
+# Set global SeleniumBase options for all browser instances
+os.environ["SB_OPTIONS"] = "--window-size=1920,1080 --enable-javascript --disable-gpu --disable-renderer-backgrounding"
+
 
 class WebScraperException(Exception):
     def __init__(self, msg):
@@ -284,6 +287,7 @@ class MusicCenterScraper(WebScraper):
             self.login(driver)
             for item in self.items:
                 self.search_item(driver, item)
+
                 # sleep(5)
                 # driver.sleep(5)
                 results = self.scrape_results(driver)
@@ -306,14 +310,16 @@ class MusicCenterScraper(WebScraper):
                 driver.click("dx-button[aria-label='התחל הזמנה']")
                 self.is_first_search = False
 
-            driver.clear("input.dx-texteditor-input")
+            input_selector = "m4u-search.search-bar input.dx-texteditor-input"
+            # driver.execute_script("arguments[0].style.border='3px solid red'", input_selector)
 
+            driver.clear(input_selector)
             # Find the element to check for staleness before updating
             element_to_check = driver.find_element(By.CSS_SELECTOR, ".price")
             original_text = element_to_check.text  # Store the original text before updating
 
             # Perform the search action
-            driver.type("input.dx-texteditor-input", item_code)
+            driver.type(input_selector, item_code)
 
             # Wait for the previous element to become stale or change text
             WebDriverWait(driver, 10).until(
@@ -324,11 +330,13 @@ class MusicCenterScraper(WebScraper):
                 lambda driver: driver.find_element(By.CSS_SELECTOR, ".price").text != original_text
             )
         except Exception as e:
-            print("Search failed. item " + item_code + " not found")
+            print(f"Search failed. Item '{item_code}' not found: {e}")
 
     def scrape_results(self, driver):
         """Scrape results method (handles both modes with a unified driver)."""
         try:
+            driver.save_screenshot("debug_screenshot.png")
+
             stock_status = driver.get_text(By.CSS_SELECTOR, "div[class*='stock-custom-text']", 2)
             trader_price = driver.get_text(By.CSS_SELECTOR, ".price", 2)
             driver.click(By.CSS_SELECTOR, ".alternative-price",2)
@@ -717,8 +725,8 @@ def main():
     '''
 
 def main():
-    items = ["NON_EXISTANT_ITEM", "IMT-202", "sk df180", "n460"]
-    scraper = MusicCenterScraper(items, headless_mode=True, is_test_env=False)
+    items =   ["NON_EXISTANT_ITEM", "IMT-202", "sk df180", "n460"]  #   ["IMT-202", "n460"]
+    scraper = MusicCenterScraper(items, headless_mode=False, is_test_env=False)
     try:
         scraper.start()
     except WebScraperException as e:
